@@ -28,12 +28,12 @@ type Change struct {
 	createdAt   time.Time
 }
 
-type WalWatcher struct {
+type ChangeStream struct {
 	tomb tomb.Tomb
 	db   *sql.DB
 }
 
-func (w *WalWatcher) Watch(out func(Change) error, stop <-chan struct{}) {
+func (w *ChangeStream) Watch(out func(Change) error, stop <-chan struct{}) {
 	w.tomb.Go(func() error {
 		// Wait for 100 milliseconds for a change
 		ticker := time.NewTicker(time.Millisecond * 100)
@@ -57,16 +57,16 @@ func (w *WalWatcher) Watch(out func(Change) error, stop <-chan struct{}) {
 	})
 }
 
-func (w *WalWatcher) Wait() <-chan struct{} {
+func (w *ChangeStream) Wait() <-chan struct{} {
 	return w.tomb.Dead()
 }
 
-func (w *WalWatcher) Close() error {
+func (w *ChangeStream) Close() error {
 	w.tomb.Kill(nil)
 	return w.tomb.Wait()
 }
 
-func (w *WalWatcher) read(lastId int, now time.Time, out func(Change) error) (int, error) {
+func (w *ChangeStream) read(lastId int, now time.Time, out func(Change) error) (int, error) {
 	txn, err := w.db.Begin()
 	if err != nil {
 		return -1, err

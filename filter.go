@@ -16,22 +16,22 @@ type Watcher interface {
 	Watch(func(Change) error, <-chan struct{})
 }
 
-type ModelConfigFilter struct {
+type Filter struct {
 	tomb    tomb.Tomb
 	watcher Watcher
 }
 
-func NewModelConfigFilter(watcher Watcher) *ModelConfigFilter {
-	filter := &ModelConfigFilter{
+func NewFilter(watcher Watcher) *Filter {
+	filter := &Filter{
 		watcher: watcher,
 	}
 
 	return filter
 }
 
-func (s *ModelConfigFilter) Subscribe(table string, modification DocState) (chan []ModelConfigChange, func()) {
+func (s *Filter) Subscribe(table string, modification DocState) (chan []Change, func()) {
 	in := make(chan Change)
-	out := make(chan []ModelConfigChange)
+	out := make(chan []Change)
 
 	stop := make(chan struct{}, 1)
 
@@ -47,7 +47,7 @@ func (s *ModelConfigFilter) Subscribe(table string, modification DocState) (chan
 	}, stop)
 
 	go func() {
-		changes := make([]ModelConfigChange, 0)
+		changes := make([]Change, 0)
 		for {
 			select {
 			case value := <-in:
@@ -64,10 +64,7 @@ func (s *ModelConfigFilter) Subscribe(table string, modification DocState) (chan
 					continue
 				}
 
-				changes = append(changes, ModelConfigChange{
-					ID:    value.contextID,
-					State: state,
-				})
+				changes = append(changes, value)
 			default:
 				out <- changes
 				changes = changes[:0]
@@ -81,11 +78,11 @@ func (s *ModelConfigFilter) Subscribe(table string, modification DocState) (chan
 	}
 }
 
-func (w *ModelConfigFilter) Wait() <-chan struct{} {
+func (w *Filter) Wait() <-chan struct{} {
 	return w.tomb.Dead()
 }
 
-func (w *ModelConfigFilter) Close() error {
+func (w *Filter) Close() error {
 	w.tomb.Kill(nil)
 	return w.tomb.Wait()
 }

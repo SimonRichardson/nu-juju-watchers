@@ -63,20 +63,20 @@ func main() {
 
 			// Create the write ahead log watcher. This will notify any changes
 			// that have occurred in the log.
-			watcher := &WalWatcher{
+			stream := &ChangeStream{
 				db: db,
 			}
 
 			// The filter will look for changes from the WalWatcher and only
 			// emit changes that we actually care about.
-			filter := NewModelConfigFilter(watcher)
+			filter := NewFilter(stream)
 			changes, unsub := filter.Subscribe("model_config", CreateDoc|UpdateDoc)
 			defer unsub()
 
 			// The NewModelConfigWatcher will take those changes and emit the
 			// model configs based on any changes.
-			modelConfigWatcher := NewModelConfigWatcher(db, changes)
-			modelConfigWatcher.Run()
+			modelConfigWatcher := NewModelConfigWatcher(db)
+			modelConfigWatcher.Run(changes)
 
 			done := make(chan struct{}, 1)
 			go func() {
@@ -101,7 +101,7 @@ func main() {
 			signal.Notify(ch, unix.SIGKILL)
 			select {
 			case <-ch:
-			case <-watcher.Wait():
+			case <-stream.Wait():
 			case <-modelConfigWatcher.Wait():
 			}
 
@@ -113,7 +113,7 @@ func main() {
 			app.Handover(context.Background())
 			app.Close()
 
-			watcher.Close()
+			stream.Close()
 			modelConfigWatcher.Close()
 
 			return nil

@@ -15,27 +15,21 @@ type ModelConfigValue struct {
 	Value string
 }
 
-type ModelConfigChange struct {
-	ID    int
-	State DocState
-}
-
 type ModelConfigWatcher struct {
 	tomb tomb.Tomb
 	db   *sql.DB
 	out  chan []ModelConfigValue
-	in   chan []ModelConfigChange
+	in   chan []Change
 }
 
-func NewModelConfigWatcher(db *sql.DB, source chan []ModelConfigChange) *ModelConfigWatcher {
+func NewModelConfigWatcher(db *sql.DB) *ModelConfigWatcher {
 	return &ModelConfigWatcher{
 		db:  db,
 		out: make(chan []ModelConfigValue),
-		in:  source,
 	}
 }
 
-func (w *ModelConfigWatcher) Run() {
+func (w *ModelConfigWatcher) Run(in chan []Change) {
 	w.tomb.Go(func() error {
 		// Get the initial config.
 		changes, err := w.initial()
@@ -114,7 +108,7 @@ func (w *ModelConfigWatcher) initial() ([]ModelConfigValue, error) {
 	return docs, nil
 }
 
-func (w *ModelConfigWatcher) updates(changes []ModelConfigChange) ([]ModelConfigValue, error) {
+func (w *ModelConfigWatcher) updates(changes []Change) ([]ModelConfigValue, error) {
 	txn, err := w.db.Begin()
 	if err != nil {
 		return nil, err
@@ -122,10 +116,10 @@ func (w *ModelConfigWatcher) updates(changes []ModelConfigChange) ([]ModelConfig
 
 	idents := set.NewInts()
 	for _, change := range changes {
-		if change.State == DeleteDoc {
+		if change.walType == Delete {
 			continue
 		}
-		idents.Add(change.ID)
+		idents.Add(change.id)
 	}
 	ints := idents.SortedValues()
 	values := make([]interface{}, len(ints))
