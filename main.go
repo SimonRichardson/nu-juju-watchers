@@ -7,11 +7,9 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"time"
 
 	"github.com/canonical/go-dqlite/app"
 	"github.com/canonical/go-dqlite/client"
-	"github.com/juju/pubsub/v2"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	"golang.org/x/sys/unix"
@@ -23,8 +21,6 @@ func main() {
 	var join *[]string
 	var dir string
 	var verbose bool
-
-	events := pubsub.NewSimpleHub(nil)
 
 	cmd := &cobra.Command{
 		Use:   "nu-juju-watcher",
@@ -70,23 +66,16 @@ func main() {
 			watcher := &WalWatcher{
 				db: db,
 			}
-			watcher.Watch(func(change Change) error {
-				delivered := events.Publish("wal_change", change)
-				select {
-				case <-pubsub.Wait(delivered):
-				case <-time.After(time.Second):
-					return errors.Errorf("failed to deliver wal change")
-				}
-				return nil
-			})
 
 			// The filter will look for changes from the WalWatcher and only
 			// emit changes that we actually care about.
-			source := NewModelConfigSource(events)
+			filter := NewModelConfigFilter(watcher)
+			changes, unsub := filter.Subscribe("model_config", CreateDoc|UpdateDoc)
+			defer unsub()
 
 			// The NewModelConfigWatcher will take those changes and emit the
 			// model configs based on any changes.
-			modelConfigWatcher := NewModelConfigWatcher(db, source.Changes())
+			modelConfigWatcher := NewModelConfigWatcher(db, changes)
 			modelConfigWatcher.Run()
 
 			done := make(chan struct{}, 1)

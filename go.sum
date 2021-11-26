@@ -178,6 +178,7 @@ github.com/juju/collections v0.0.0-20200605021417-0d0ec82b7271/go.mod h1:5XgO71d
 github.com/juju/errors v0.0.0-20150916125642-1b5e39b83d18/go.mod h1:W54LbzXuIE0boCoNJfwqpmkKJ1O4TCTZMetAt6jGk7Q=
 github.com/juju/loggo v0.0.0-20170605014607-8232ab8918d9/go.mod h1:vgyd7OREkbtVEN/8IXZe5Ooef3LQePvuBm9UWj6ZL8U=
 github.com/juju/pubsub v0.0.0-20190419131051-c1f7536b9cc6 h1:2aARJxmMC2IF9GqVtt5PYcIy4jyuAcR44byqwXKTK0o=
+github.com/juju/pubsub v0.0.0-20190419131051-c1f7536b9cc6/go.mod h1:umz/NzotkJCFQHT3hqeLRISzYNCZzyV1sogjeAILCWw=
 github.com/juju/pubsub/v2 v2.0.0-20210804115646-050d38a80f5b h1:EwjCZIeRDkUzIM7hFFmq339tBZA5NBXIzOUXM6KR3U8=
 github.com/juju/pubsub/v2 v2.0.0-20210804115646-050d38a80f5b/go.mod h1:+fw+MJGVa006M85prHvwS9pQrCjkkaaH8Ds1wvEMpXQ=
 github.com/juju/retry v0.0.0-20151029024821-62c620325291/go.mod h1:OohPQGsr4pnxwD5YljhQ+TZnuVRYpa5irjugL1Yuif4=

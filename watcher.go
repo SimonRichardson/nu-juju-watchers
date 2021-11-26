@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/juju/collections/set"
-	"github.com/juju/pubsub/v2"
 	"github.com/pkg/errors"
 	"gopkg.in/tomb.v2"
 )
@@ -173,81 +172,4 @@ func (w *ModelConfigWatcher) updates(changes []ModelConfigChange) ([]ModelConfig
 	}
 
 	return docs, nil
-}
-
-type DocState int
-
-const (
-	CreateDoc DocState = iota
-	UpdateDoc
-	DeleteDoc
-)
-
-type ModelConfigSource struct {
-	tomb  tomb.Tomb
-	unsub func()
-	in    chan ModelConfigChange
-	out   chan []ModelConfigChange
-}
-
-func NewModelConfigSource(events *pubsub.SimpleHub) *ModelConfigSource {
-	source := &ModelConfigSource{
-		in:  make(chan ModelConfigChange),
-		out: make(chan []ModelConfigChange),
-	}
-	source.tomb.Go(source.loop)
-
-	source.unsub = events.Subscribe("wal_change", func(topic string, data interface{}) {
-		c, ok := data.(Change)
-		if !ok {
-			panic("programming error, expected a Change")
-		}
-
-		// If it's something we're not interested in, skip.
-		if c.contextName != "model_config" {
-			return
-		}
-
-		state := UpdateDoc
-		switch c.walType {
-		case Create:
-			state = CreateDoc
-		case Delete:
-			state = DeleteDoc
-		}
-
-		source.in <- ModelConfigChange{
-			ID:    c.contextID,
-			State: state,
-		}
-	})
-
-	return source
-}
-
-func (s *ModelConfigSource) Changes() chan []ModelConfigChange {
-	return s.out
-}
-
-func (w *ModelConfigSource) Wait() <-chan struct{} {
-	return w.tomb.Dead()
-}
-
-func (w *ModelConfigSource) Close() error {
-	w.unsub()
-
-	w.tomb.Kill(nil)
-	return w.tomb.Wait()
-}
-
-func (s *ModelConfigSource) loop() error {
-	for {
-		select {
-		case <-s.tomb.Dying():
-			return tomb.ErrDying
-		case in := <-s.in:
-			// TODO: Batch inputs.
-			s.out <- []ModelConfigChange{in}
-		}
-	}
 }

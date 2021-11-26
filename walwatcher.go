@@ -33,7 +33,7 @@ type WalWatcher struct {
 	db   *sql.DB
 }
 
-func (w *WalWatcher) Watch(out func(Change) error) {
+func (w *WalWatcher) Watch(out func(Change) error, stop <-chan struct{}) {
 	w.tomb.Go(func() error {
 		// Wait for 100 milliseconds for a change
 		ticker := time.NewTicker(time.Millisecond * 100)
@@ -41,14 +41,19 @@ func (w *WalWatcher) Watch(out func(Change) error) {
 		now := time.Now()
 
 		var lastId int
-		for range ticker.C {
-			var err error
-			if lastId, err = w.read(lastId, now, out); err != nil {
-				return err
+		for {
+			select {
+			case <-w.tomb.Dying():
+				return tomb.ErrDying
+			case <-stop:
+				return nil
+			case <-ticker.C:
+				var err error
+				if lastId, err = w.read(lastId, now, out); err != nil {
+					return err
+				}
 			}
 		}
-
-		return nil
 	})
 }
 
