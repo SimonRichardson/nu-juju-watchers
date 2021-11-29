@@ -4,9 +4,10 @@ go 1.14
 
 require (
 	github.com/canonical/go-dqlite v1.10.1
+	github.com/juju/clock v0.0.0-20190205081909-9c5c9712527c
 	github.com/juju/collections v0.0.0-20200605021417-0d0ec82b7271
-	github.com/juju/pubsub v0.0.0-20190419131051-c1f7536b9cc6
-	github.com/juju/pubsub/v2 v2.0.0-20210804115646-050d38a80f5b
+	github.com/juju/errors v0.0.0-20200330140219-3fe23663418f
+	github.com/juju/utils/v2 v2.0.0-20210305225158-eedbe7b6b3e2
 	github.com/pkg/errors v0.9.1
 	github.com/spf13/cobra v1.2.1
 	golang.org/x/sys v0.0.0-20211124211545-fe61309f8881

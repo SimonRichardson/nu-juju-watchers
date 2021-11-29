@@ -2,20 +2,36 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
 
+	"github.com/SimonRichardson/nu-juju-watchers/changestream"
+	"github.com/SimonRichardson/nu-juju-watchers/eventqueue"
+	"github.com/SimonRichardson/nu-juju-watchers/repl"
+	"github.com/SimonRichardson/nu-juju-watchers/server"
+	"github.com/SimonRichardson/nu-juju-watchers/watcher"
 	"github.com/canonical/go-dqlite/app"
 	"github.com/canonical/go-dqlite/client"
-	"github.com/pkg/errors"
+	"github.com/juju/clock"
 	"github.com/spf13/cobra"
 	"golang.org/x/sys/unix"
 )
 
 func main() {
+	defer func() {
+		if err := recover(); err != nil {
+			fmt.Println(err)
+		}
+	}()
+
+	doItLive()
+}
+
+func doItLive() {
 	var api string
 	var db string
 	var join *[]string
@@ -27,10 +43,6 @@ func main() {
 		Short: "Demo to show the nu-juju-watcher",
 		Long:  `This demo shows the nu-juju-watchers driven by a WAL table`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			dir := filepath.Join(dir, db)
-			if err := os.MkdirAll(dir, 0755); err != nil {
-				return errors.Wrapf(err, "can't create %s", dir)
-			}
 			logFunc := func(l client.LogLevel, format string, a ...interface{}) {
 				if !verbose {
 					return
@@ -54,8 +66,13 @@ func main() {
 				return err
 			}
 
+			_, err = repl.New(filepath.Join(dir, "juju.sock"), dbGetter{db: db}, clock.WallClock)
+			if err != nil {
+				return err
+			}
+
 			// Create the server for adding new items to the database
-			server := Server{db: db}
+			server := server.New(db)
 			listener, err := server.Serve(api)
 			if err != nil {
 				return err
@@ -63,20 +80,16 @@ func main() {
 
 			// Create the write ahead log watcher. This will notify any changes
 			// that have occurred in the log.
-			stream := &ChangeStream{
-				db: db,
-			}
+			stream := changestream.New(db)
+			defer stream.Close()
 
-			// The filter will look for changes from the WalWatcher and only
-			// emit changes that we actually care about.
-			filter := NewFilter(stream)
-			changes, unsub := filter.Subscribe("model_config", CreateDoc|UpdateDoc)
-			defer unsub()
+			eventQueue := eventqueue.New(stream)
+			defer eventQueue.Close()
 
 			// The NewModelConfigWatcher will take those changes and emit the
 			// model configs based on any changes.
-			modelConfigWatcher := NewModelConfigWatcher(db)
-			modelConfigWatcher.Run(changes)
+			modelConfigWatcher := watcher.New(db, eventQueue)
+			defer modelConfigWatcher.Close()
 
 			done := make(chan struct{}, 1)
 			go func() {
@@ -113,9 +126,6 @@ func main() {
 			app.Handover(context.Background())
 			app.Close()
 
-			stream.Close()
-			modelConfigWatcher.Close()
-
 			return nil
 		},
 	}
@@ -132,4 +142,12 @@ func main() {
 	if err := cmd.Execute(); err != nil {
 		os.Exit(1)
 	}
+}
+
+type dbGetter struct {
+	db *sql.DB
+}
+
+func (g dbGetter) GetExistingDB(_ string) (*sql.DB, error) {
+	return g.db, nil
 }

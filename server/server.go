@@ -1,4 +1,4 @@
-package main
+package server
 
 import (
 	"database/sql"
@@ -11,6 +11,10 @@ import (
 
 type Server struct {
 	db *sql.DB
+}
+
+func New(db *sql.DB) *Server {
+	return &Server{db: db}
 }
 
 func (s Server) Serve(address string) (net.Listener, error) {
@@ -43,7 +47,7 @@ func (s Server) Serve(address string) (net.Listener, error) {
 				w.WriteHeader(http.StatusInternalServerError)
 				break
 			}
-			result = fmt.Sprintf("%d: {%q:%q}", id, key, value)
+			result = fmt.Sprintf("get {%q:%q}", key, value)
 
 		case "POST", "PUT":
 			value, _ := ioutil.ReadAll(r.Body)
@@ -90,3 +94,9 @@ func (s Server) Serve(address string) (net.Listener, error) {
 
 	return listener, err
 }
+
+const (
+	query  = "SELECT id, key, value FROM model_config WHERE key = ?"
+	update = "INSERT OR REPLACE INTO model_config(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value"
+	remove = "DELETE FROM model_config WHERE key = ?"
+)
