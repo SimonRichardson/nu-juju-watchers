@@ -90,7 +90,7 @@ func doItLive() {
 
 			// The NewModelConfigWatcher will take those changes and emit the
 			// model configs based on any changes.
-			modelConfigWatcher := watcher.New(db, eventQueue)
+			modelConfigWatcher := watcher.NewAlt(db, eventQueue)
 			defer modelConfigWatcher.Close()
 
 			done := make(chan struct{}, 1)

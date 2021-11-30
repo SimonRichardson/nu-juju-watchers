@@ -65,15 +65,17 @@ func (w *ModelConfigWatcher) loop() error {
 	changes := result.([]ModelConfigValue)
 
 	store := make(map[int64]ModelConfigValue)
-	for _, change := range changes {
-		store[change.ID] = change
-	}
+	if len(changes) > 0 {
+		for _, change := range changes {
+			store[change.ID] = change
+		}
 
-	// Push initial changes out.
-	select {
-	case <-w.tomb.Dying():
-		return tomb.ErrDying
-	case w.out <- changes:
+		// Push initial changes out.
+		select {
+		case <-w.tomb.Dying():
+			return tomb.ErrDying
+		case w.out <- changes:
+		}
 	}
 
 	for {

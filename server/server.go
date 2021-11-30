@@ -132,5 +132,5 @@ func (s *Server) doDelete(ctx context.Context, key string) (string, error) {
 		return "", err
 	}
 
-	return fmt.Sprintf("removed {%q}", key), nil
+	return fmt.Sprintf("remove {%q}", key), nil
 }
