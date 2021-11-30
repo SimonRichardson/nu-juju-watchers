@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 
+	"github.com/SimonRichardson/nu-juju-watchers/db"
 	"github.com/SimonRichardson/nu-juju-watchers/eventqueue"
 	"gopkg.in/tomb.v2"
 )
@@ -57,24 +58,28 @@ func (w *ModelConfigWatcher) loop() error {
 	defer subscription.Close()
 
 	// Get the initial config.
-	changes, err := w.initial()
+	result, err := db.WithRetryWithResult(func() (interface{}, error) { return w.initial() })
 	if err != nil {
 		return err
 	}
+	changes := result.([]ModelConfigValue)
+
 	store := make(map[int64]ModelConfigValue)
 	for _, change := range changes {
 		store[change.ID] = change
 	}
 
-	out := w.out
+	// Push initial changes out.
+	select {
+	case <-w.tomb.Dying():
+		return tomb.ErrDying
+	case w.out <- changes:
+	}
+
 	for {
 		select {
 		case <-w.tomb.Dying():
 			return tomb.ErrDying
-
-		case out <- changes:
-			out = nil
-			changes = nil
 
 		case c, ok := <-subscription.Changes():
 			if !ok {
@@ -82,13 +87,19 @@ func (w *ModelConfigWatcher) loop() error {
 			}
 
 			// Modifications can be create or update.
-			modifications, deletions, err := w.updates(c)
+			var modifications []ModelConfigValue
+			var deletions map[int64]struct{}
+			err := db.WithRetry(func() error {
+				var err error
+				modifications, deletions, err = w.updates(c)
+				return err
+			})
 			if err != nil {
 				fmt.Println("ModelChange err", err)
 				return err
 			}
 
-			changes = diffStoreChanges(store, modifications)
+			changes := diffStoreChanges(store, modifications)
 
 			// Store the changes.
 			for _, v := range changes {
@@ -98,8 +109,15 @@ func (w *ModelConfigWatcher) loop() error {
 				delete(store, id)
 			}
 
-			if len(changes) > 0 {
-				out = w.out
+			if len(changes) == 0 {
+				continue
+			}
+
+			// Push new changes.
+			select {
+			case <-w.tomb.Dying():
+				return tomb.ErrDying
+			case w.out <- changes:
 			}
 		}
 	}
@@ -127,6 +145,9 @@ const (
 func (w *ModelConfigWatcher) initial() ([]ModelConfigValue, error) {
 	rows, err := w.db.Query(queryAll)
 	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
 		return nil, err
 	}
 	defer rows.Close()

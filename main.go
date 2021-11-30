@@ -66,7 +66,9 @@ func doItLive() {
 				return err
 			}
 
-			_, err = repl.New(filepath.Join(dir, "juju.sock"), dbGetter{db: db}, clock.WallClock)
+			replSock := filepath.Join(dir, "juju.sock")
+			_ = os.Remove(replSock)
+			_, err = repl.New(replSock, dbGetter{db: db}, clock.WallClock)
 			if err != nil {
 				return err
 			}
@@ -101,7 +103,7 @@ func doItLive() {
 					// for changes. For now, our proxy just emits changes to
 					// stdout.
 					case change := <-modelConfigWatcher.Changes():
-						fmt.Println("ModelConfig Changes:", change)
+						fmt.Printf("\n -> Changes from watcher: %v\n\n", change)
 					}
 				}
 			}()

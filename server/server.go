@@ -1,12 +1,15 @@
 package server
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"io/ioutil"
 	"net"
 	"net/http"
 	"strings"
+
+	"github.com/SimonRichardson/nu-juju-watchers/db"
 )
 
 type Server struct {
@@ -19,70 +22,49 @@ func New(db *sql.DB) *Server {
 
 func (s Server) Serve(address string) (net.Listener, error) {
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		txn, err := s.db.BeginTx(r.Context(), nil)
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-
+		ctx := r.Context()
 		key := strings.TrimLeft(r.URL.Path, "/")
-		result := ""
 		switch r.Method {
 		case "GET":
-			row := txn.QueryRowContext(r.Context(), query, key)
-			var (
-				id    int
-				key   string
-				value string
-			)
-			if err = row.Scan(&id, &key, &value); err != nil {
-				result = fmt.Sprintf("Error: %s", err.Error())
-				if err := txn.Rollback(); err != nil {
-					w.WriteHeader(http.StatusInternalServerError)
-					return
-				}
-				break
-			}
-			if err := txn.Commit(); err != nil {
+			res, err := db.WithRetryWithResult(func() (interface{}, error) {
+				return s.doRead(ctx, key)
+			})
+			if err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
-				break
+				fmt.Fprintln(w, err.Error())
+				return
 			}
-			result = fmt.Sprintf("get {%q:%q}", key, value)
+			fmt.Fprintln(w, res)
 
 		case "POST", "PUT":
-			value, _ := ioutil.ReadAll(r.Body)
-			result = fmt.Sprintf("upserted {%q:%q}", key, string(value))
-			if _, err = txn.ExecContext(r.Context(), update, key, value); err != nil {
-				result = fmt.Sprintf("Error: %s", err.Error())
-				if err := txn.Commit(); err != nil {
-					w.WriteHeader(http.StatusInternalServerError)
-					break
-				}
-			}
-			if err := txn.Commit(); err != nil {
+			valueRaw, _ := ioutil.ReadAll(r.Body)
+			value := strings.TrimSpace(string(valueRaw))
+
+			res, err := db.WithRetryWithResult(func() (interface{}, error) {
+				return s.doCreate(ctx, key, value)
+			})
+			if err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
-				break
+				fmt.Fprintln(w, err.Error())
+				return
 			}
+			fmt.Fprintln(w, res)
 
 		case "DELETE":
-			result = fmt.Sprintf("deleted %q", key)
-			if _, err = txn.ExecContext(r.Context(), remove, key); err != nil {
-				result = fmt.Sprintf("Error: %s", err.Error())
-				if err := txn.Commit(); err != nil {
-					w.WriteHeader(http.StatusInternalServerError)
-					break
-				}
-			}
-			if err := txn.Commit(); err != nil {
+			res, err := db.WithRetryWithResult(func() (interface{}, error) {
+				return s.doDelete(ctx, key)
+			})
+			if err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
-				break
+				fmt.Fprintln(w, err.Error())
+				return
 			}
+			fmt.Fprintln(w, res)
 
 		default:
-			result = fmt.Sprintf("Error: unsupported method %q", r.Method)
-
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprintf(w, "Error: unsupported method %q\n", r.Method)
 		}
-		fmt.Fprintf(w, "%s\n", result)
 	})
 
 	listener, err := net.Listen("tcp", address)
@@ -100,3 +82,55 @@ const (
 	update = "INSERT OR REPLACE INTO model_config(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value"
 	remove = "DELETE FROM model_config WHERE key = ?"
 )
+
+func (s *Server) doCreate(ctx context.Context, key, value string) (string, error) {
+	txn, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return "", err
+	}
+
+	if _, err = txn.ExecContext(ctx, update, key, value); err != nil {
+		return "", err
+	}
+
+	if err := txn.Commit(); err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("upsert {%q:%q}", key, value), nil
+}
+
+func (s *Server) doRead(ctx context.Context, key string) (string, error) {
+	row := s.db.QueryRowContext(ctx, query, key)
+	config := struct {
+		ID    int64
+		Key   string
+		Value string
+	}{}
+
+	if err := row.Scan(&config.ID, &config.Key, &config.Value); err != nil {
+		if err == sql.ErrNoRows {
+			return "(not found)", nil
+		}
+		return "", err
+	}
+
+	return fmt.Sprintf("get {%q:%q}", config.Key, config.Value), nil
+}
+
+func (s *Server) doDelete(ctx context.Context, key string) (string, error) {
+	txn, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return "", err
+	}
+
+	if _, err = txn.ExecContext(ctx, remove, key); err != nil {
+		return "", err
+	}
+
+	if err := txn.Commit(); err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("removed {%q}", key), nil
+}

@@ -5,12 +5,13 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/SimonRichardson/nu-juju-watchers/db"
 	"github.com/SimonRichardson/nu-juju-watchers/eventqueue"
 	"gopkg.in/tomb.v2"
 )
 
 const (
-	ChangePollInterval = time.Millisecond * 10
+	ChangePollInterval = time.Millisecond * 100
 )
 
 type change struct {
@@ -38,7 +39,6 @@ type ChangeStream struct {
 	db       *sql.DB
 	changeCh chan eventqueue.Change
 	lastId   int
-	lastTs   time.Time
 }
 
 func New(db *sql.DB) *ChangeStream {
@@ -76,7 +76,7 @@ func (w *ChangeStream) loop() error {
 		case <-w.tomb.Dying():
 			return tomb.ErrDying
 		case <-timer.C:
-			if err := w.read(); err != nil {
+			if err := db.WithRetry(w.read); err != nil {
 				fmt.Println("ChangeStream err", err)
 				return err
 			}
@@ -89,18 +89,16 @@ func (w *ChangeStream) loop() error {
 const (
 	query = `
 SELECT MAX(id), type, entity_type, entity_id, MAX(created_at)
-	FROM change_log WHERE id > ? AND created_at >= ? 
+	FROM change_log WHERE id > ?
 	GROUP BY type, entity_type, entity_id 
 	ORDER BY id ASC
 `
-
-	sqlTimeFormat = "2006-01-02 15:04:05"
 )
 
 func (w *ChangeStream) read() error {
 	// We want to last known Id we've scanned and everything after we've started
 	// to subscribe.
-	rows, err := w.db.Query(query, w.lastId, w.lastTs)
+	rows, err := w.db.Query(query, w.lastId)
 	if err != nil {
 		return err
 	}
@@ -133,14 +131,6 @@ func (w *ChangeStream) read() error {
 
 		// Keep track of the last seen ID and MAX seen timestamp for the next poll.
 		w.lastId = chDoc.id
-
-		createdAt, err := time.Parse(sqlTimeFormat, chDoc.createdAt)
-		if err != nil {
-			return err
-		}
-		if createdAt.After(w.lastTs) {
-			w.lastTs = createdAt
-		}
 	}
 
 	return nil

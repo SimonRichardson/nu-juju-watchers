@@ -8,6 +8,7 @@ require (
 	github.com/juju/collections v0.0.0-20200605021417-0d0ec82b7271
 	github.com/juju/errors v0.0.0-20200330140219-3fe23663418f
 	github.com/juju/utils/v2 v2.0.0-20210305225158-eedbe7b6b3e2
+	github.com/mattn/go-sqlite3 v1.14.7
 	github.com/pkg/errors v0.9.1
 	github.com/spf13/cobra v1.2.1
 	golang.org/x/sys v0.0.0-20211124211545-fe61309f8881
