@@ -103,7 +103,7 @@ func doItLive() {
 					// for changes. For now, our proxy just emits changes to
 					// stdout.
 					case change := <-modelConfigWatcher.Changes():
-						fmt.Printf("\n -> Changes from watcher: %v\n\n", change)
+						fmt.Printf("%s: Changes from watcher: %v\n", dir, change)
 					}
 				}
 			}()

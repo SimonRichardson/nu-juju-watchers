@@ -173,10 +173,15 @@ func (r *SQLRepl) processCommand(s *replSession, input string) {
 		return
 	}
 
-	// Is it an SQL select?
+	// Is it an SQL select or insert?
 	if strings.EqualFold(tokens[0], "SELECT") {
 		s.cmdParams = strings.Join(tokens, " ")
 		r.handleSelect(s)
+		return
+	}
+	if strings.EqualFold(tokens[0], "INSERT") {
+		s.cmdParams = strings.Join(tokens, " ")
+		r.handleInsert(s)
 		return
 	}
 
@@ -223,6 +228,31 @@ func (r *SQLRepl) handleOpenCommand(s *replSession) {
 	}
 
 	_, _ = fmt.Fprintf(s.resWriter, "You are now connected to DB %q\n", s.cmdParams)
+}
+
+func (r *SQLRepl) handleInsert(s *replSession) {
+	if s.db == nil {
+		_, _ = fmt.Fprintf(s.resWriter, "Not connected to a database; use '.open' followed by the model UUID to connect to\n")
+		return
+	}
+
+	if strings.Contains(strings.ToUpper(s.cmdParams), "DROP TABLE") {
+		_, _ = fmt.Fprintf(s.resWriter, "I see you are a friend of little Bobby Drop Tables; say hi to him from me!\n")
+		return
+	}
+
+	// NOTE(achilleasa): passing unfiltered user input to SQL is a horrible
+	// horrible hack that should NEVER EVER see the light of day. You have
+	// been warned!
+	res, err := s.db.ExecContext(r.sessionCtx, s.cmdParams)
+	if err != nil {
+		_, _ = fmt.Fprintf(s.resWriter, "Unable to execute query; check the logs for more details\n")
+		return
+	}
+
+	lastInsertID, _ := res.LastInsertId()
+	rowsAffected, _ := res.RowsAffected()
+	_, _ = fmt.Fprintf(s.resWriter, "Affected Rows: %d; last insert ID: %v\n", rowsAffected, lastInsertID)
 }
 
 func (r *SQLRepl) handleSelect(s *replSession) {
