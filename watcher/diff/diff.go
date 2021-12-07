@@ -1,4 +1,4 @@
-package watcher
+package diff
 
 import (
 	"database/sql"
@@ -7,9 +7,17 @@ import (
 	"gopkg.in/tomb.v2"
 )
 
-// WAMAGA: watchers made great again!
+type EventQueue interface {
+	Subscribe(opts ...eventqueue.SubscriptionOption) (eventqueue.Subscription, error)
+}
 
-type AltModelConfigWatcher struct {
+type ModelConfigValue struct {
+	ID    int64
+	Key   string
+	Value string
+}
+
+type ModelConfigWatcher struct {
 	tomb tomb.Tomb
 
 	eventQueue EventQueue
@@ -17,8 +25,8 @@ type AltModelConfigWatcher struct {
 	out        chan []ModelConfigValue
 }
 
-func NewAlt(db *sql.DB, eventQueue EventQueue) *AltModelConfigWatcher {
-	watcher := &AltModelConfigWatcher{
+func NewModelConfigWatcher(db *sql.DB, eventQueue EventQueue) *ModelConfigWatcher {
+	watcher := &ModelConfigWatcher{
 		out:        make(chan []ModelConfigValue),
 		eventQueue: eventQueue,
 	}
@@ -35,20 +43,20 @@ func NewAlt(db *sql.DB, eventQueue EventQueue) *AltModelConfigWatcher {
 	return watcher
 }
 
-func (w *AltModelConfigWatcher) Changes() <-chan []ModelConfigValue {
+func (w *ModelConfigWatcher) Changes() <-chan []ModelConfigValue {
 	return w.out
 }
 
-func (w *AltModelConfigWatcher) Wait() <-chan struct{} {
+func (w *ModelConfigWatcher) Wait() <-chan struct{} {
 	return w.tomb.Dead()
 }
 
-func (w *AltModelConfigWatcher) Close() error {
+func (w *ModelConfigWatcher) Close() error {
 	w.tomb.Kill(nil)
 	return w.tomb.Wait()
 }
 
-func (w *AltModelConfigWatcher) loop() error {
+func (w *ModelConfigWatcher) loop() error {
 	subscription, err := w.eventQueue.Subscribe(eventqueue.Topic("model_config", eventqueue.Create|eventqueue.Update|eventqueue.Delete))
 	if err != nil {
 		return err
@@ -80,10 +88,15 @@ func (w *AltModelConfigWatcher) loop() error {
 	}
 }
 
-func mapModelConfig(data map[string]interface{}) ModelConfigValue {
+func mapModelConfig(data entityMap) ModelConfigValue {
 	return ModelConfigValue{
 		ID:    data["id"].(int64),
 		Key:   data["key"].(string),
 		Value: data["value"].(string),
 	}
 }
+
+const (
+	query    = "SELECT id, key, value FROM model_config WHERE id = ?"
+	queryAll = "SELECT id, key, value FROM model_config"
+)

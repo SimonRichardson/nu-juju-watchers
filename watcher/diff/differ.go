@@ -1,4 +1,4 @@
-package watcher
+package diff
 
 import (
 	"database/sql"
@@ -42,13 +42,10 @@ func (w *differ) Close() error {
 }
 
 func (w *differ) loop() error {
-	fmt.Println("differ loop start")
 	// Populate store with initial state.
 	if err := w.initialize(); err != nil {
 		return err
 	}
-
-	fmt.Printf("differ initial state size: %d\n", len(w.entityStore))
 
 	// Push initial state out.
 	for _, ent := range w.entityStore {

@@ -2,7 +2,6 @@ package watcher
 
 import (
 	"database/sql"
-	"fmt"
 
 	"github.com/SimonRichardson/nu-juju-watchers/db"
 	"github.com/SimonRichardson/nu-juju-watchers/eventqueue"
@@ -26,7 +25,7 @@ type ModelConfigWatcher struct {
 	out        chan []ModelConfigValue
 }
 
-func New(db *sql.DB, eventQueue EventQueue) *ModelConfigWatcher {
+func NewModelConfigWatcher(db *sql.DB, eventQueue EventQueue) *ModelConfigWatcher {
 	watcher := &ModelConfigWatcher{
 		db:         db,
 		eventQueue: eventQueue,
@@ -97,7 +96,6 @@ func (w *ModelConfigWatcher) loop() error {
 				return err
 			})
 			if err != nil {
-				fmt.Println("ModelChange err", err)
 				return err
 			}
 
@@ -140,12 +138,12 @@ func diffStoreChanges(store map[int64]ModelConfigValue, changes []ModelConfigVal
 }
 
 const (
-	query    = "SELECT id, key, value FROM model_config WHERE id = ?"
-	queryAll = "SELECT id, key, value FROM model_config"
+	modelConfigQuery    = "SELECT id, key, value FROM model_config WHERE id = ?"
+	modelConfigQueryAll = "SELECT id, key, value FROM model_config"
 )
 
 func (w *ModelConfigWatcher) initial() ([]ModelConfigValue, error) {
-	rows, err := w.db.Query(queryAll)
+	rows, err := w.db.Query(modelConfigQueryAll)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -177,7 +175,7 @@ func (w *ModelConfigWatcher) updates(change eventqueue.Change) ([]ModelConfigVal
 		return nil, map[int64]struct{}{change.EntityID(): {}}, nil
 	}
 
-	row := w.db.QueryRow(query, change.EntityID())
+	row := w.db.QueryRow(modelConfigQuery, change.EntityID())
 
 	var doc ModelConfigValue
 	err := row.Scan(&doc.ID, &doc.Key, &doc.Value)

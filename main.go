@@ -90,8 +90,11 @@ func doItLive() {
 
 			// The NewModelConfigWatcher will take those changes and emit the
 			// model configs based on any changes.
-			modelConfigWatcher := watcher.NewAlt(db, eventQueue)
+			modelConfigWatcher := watcher.NewModelConfigWatcher(db, eventQueue)
 			defer modelConfigWatcher.Close()
+
+			stringsWatcher := watcher.NewModelConfigKeyWatcher(db, eventQueue)
+			defer stringsWatcher.Close()
 
 			done := make(chan struct{}, 1)
 			go func() {
@@ -103,7 +106,10 @@ func doItLive() {
 					// for changes. For now, our proxy just emits changes to
 					// stdout.
 					case change := <-modelConfigWatcher.Changes():
-						fmt.Printf("%s: Changes from watcher: %v\n", dir, change)
+						fmt.Printf("%s: Changes from model config watcher: %v\n", dir, change)
+
+					case change := <-stringsWatcher.Changes():
+						fmt.Printf("%s: Changes from strings watcher: %v\n", dir, change)
 					}
 				}
 			}()
