@@ -1,46 +1,43 @@
-HASH := \#
-TAG_SQLITE3=$(shell printf "$(HASH)include <dqlite.h>\nvoid main(){dqlite_node_id n = 1;}" | $(CC) ${CGO_CFLAGS} -o /dev/null -xc - >/dev/null 2>&1 && echo "libsqlite3")
-CGO_LDFLAGS_ALLOW ?= (-Wl,-wrap,pthread_create)|(-Wl,-z,now)
-RAFT_PATH=$(GOPATH)/deps/raft
-DQLITE_PATH=$(GOPATH)/deps/dqlite
+PROJECT_PATH=$(GOPATH)/src/github.com/SimonRichardson/nu-juju-watchers
 
-build:
-ifeq "$(TAG_SQLITE3)" ""
-	@echo "Missing dqlite, run \"make deps\" to setup."
-	exit 1
-endif
+DQLITE_S3_BUCKET=s3://dqlite-static-libs
+DQLITE_S3_ARCHIVE_NAME=$(shell date -u +"%Y-%m-%d")-dqlite-deps-$(shell uname -m).tar.bz2
+DQLITE_S3_ARCHIVE_PATH=${DQLITE_S3_BUCKET}/${DQLITE_S3_ARCHIVE_NAME}
 
-	CC="$(CC)" CGO_LDFLAGS_ALLOW="$(CGO_LDFLAGS_ALLOW)" go install -v -tags "$(TAG_SQLITE3)" $(DEBUG) ./...
+DQLITE_EXTRACTED_DEPS_PATH=${PROJECT_PATH}/_deps
+DQLITE_EXTRACTED_DEPS_ARCHIVE_PATH=${DQLITE_EXTRACTED_DEPS_PATH}/juju-dqlite-static-lib-deps
 
-.PHONY: deps
-deps:
-	@if [ ! -e "$(RAFT_PATH)" ]; then \
-		git clone --depth=1 "https://github.com/canonical/raft" "$(RAFT_PATH)"; \
-	elif [ -e "$(RAFT_PATH)/.git" ]; then \
-		cd "$(RAFT_PATH)"; git pull; \
+dqlite-deps-check:
+	@if [ ! -d ${DQLITE_EXTRACTED_DEPS_ARCHIVE_PATH} ]; then \
+		$(MAKE) -s dqlite-deps-pull; \
 	fi
 
-	cd "$(RAFT_PATH)" && \
-		autoreconf -i && \
-		./configure && \
-		make
+dqlite-deps-pull:
+	@echo "DQLITE: Cleaning up deps path"
+	@mkdir -p ${DQLITE_EXTRACTED_DEPS_PATH}
+	@rm -rf ${DQLITE_EXTRACTED_DEPS_ARCHIVE_PATH}
+	@echo "DQLITE: Pulling latest-juju-dqlite-static-lib-deps-$(shell uname -m).tar.bz2 from s3"
+	aws s3 cp s3://dqlite-static-libs/latest-juju-dqlite-static-lib-deps-$(shell uname -m).tar.bz2 - | tar xjf - -C ${DQLITE_EXTRACTED_DEPS_PATH}
 
-	# dqlite
-	@if [ ! -e "$(DQLITE_PATH)" ]; then \
-		git clone --depth=1 "https://github.com/canonical/dqlite" "$(DQLITE_PATH)"; \
-	elif [ -e "$(DQLITE_PATH)/.git" ]; then \
-		cd "$(DQLITE_PATH)"; git pull; \
-	fi
+cgo-go-op: dqlite-deps-check
+	PATH=${PATH}:/usr/local/musl/bin \
+		CC="musl-gcc" \
+		CGO_CFLAGS="-I${DQLITE_EXTRACTED_DEPS_ARCHIVE_PATH}/include" \
+		CGO_LDFLAGS="-L${DQLITE_EXTRACTED_DEPS_ARCHIVE_PATH} -luv -lraft -ldqlite -llz4 -lsqlite3" \
+		CGO_LDFLAGS_ALLOW="(-Wl,-wrap,pthread_create)|(-Wl,-z,now)" \
+		LD_LIBRARY_PATH="${DQLITE_EXTRACTED_DEPS_ARCHIVE_PATH}" \
+		CGO_ENABLED=1 \
+		go $o $d \
+			-mod=${JUJU_GOMOD_MODE} \
+			-tags "libsqlite3 ${BUILD_TAGS}" \
+			${COMPILE_FLAGS} \
+			-ldflags "-s -w -linkmode 'external' -extldflags '-static'" \
+			-v .
 
-	cd "$(DQLITE_PATH)" && \
-		autoreconf -i && \
-		PKG_CONFIG_PATH="$(RAFT_PATH)" ./configure && \
-		make CFLAGS="-I$(RAFT_PATH)/include/" LDFLAGS="-L$(RAFT_PATH)/.libs/"
+cgo-go-install:
+## go-install: Install Juju binaries without updating dependencies
+	$(MAKE) cgo-go-op o=install d=
 
-	# environment
-	@echo ""
-	@echo "Please set the following in your environment (possibly ~/.bashrc)"
-	@echo "export CGO_CFLAGS=\"-I$(RAFT_PATH)/include/ -I$(DQLITE_PATH)/include/\""
-	@echo "export CGO_LDFLAGS=\"-L$(RAFT_PATH)/.libs -L$(DQLITE_PATH)/.libs/\""
-	@echo "export LD_LIBRARY_PATH=\"$(RAFT_PATH)/.libs/:$(DQLITE_PATH)/.libs/\""
-	@echo "export CGO_LDFLAGS_ALLOW=\"(-Wl,-wrap,pthread_create)|(-Wl,-z,now)\""
+cgo-go-build:
+## go-build: Build Juju binaries without updating dependencies
+	$(MAKE) cgo-go-op o=build d="-o ./bin/nu-juju-watchers"

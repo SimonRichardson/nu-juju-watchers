@@ -6,7 +6,7 @@ set -e
 REPL="${REPL:-}"
 ENABLE_HA="${ENABLE_HA:-}"
 
-make build
+make cgo-go-install
 
 for i in example*; do
     rm -rf "./$i"
