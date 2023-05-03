@@ -53,44 +53,28 @@ func (w *StringsWatcher) Close() error {
 }
 
 func (w *StringsWatcher) loop() error {
-	subscription, err := w.eventQueue.Subscribe(eventqueue.Topic(w.tableName, eventqueue.Create|eventqueue.Update))
+	subscription, err := w.eventQueue.Subscribe(eventqueue.Topic(w.tableName, eventqueue.Create|eventqueue.Update|eventqueue.Delete))
 	if err != nil {
 		return err
 	}
 	defer subscription.Close()
 
-	// Get the initial config.
-	result, err := db.WithRetryWithResult(func() (interface{}, error) { return w.initial() })
+	changes, err := w.initial()
 	if err != nil {
 		return err
 	}
-	changes := result.([]string)
 
-	if len(changes) > 0 {
-		// Push initial changes out.
-		select {
-		case <-w.tomb.Dying():
-			return tomb.ErrDying
-		case w.out <- changes:
-		}
-	}
-
+	out := w.out
 	for {
 		select {
 		case <-w.tomb.Dying():
 			return tomb.ErrDying
-
 		case c, ok := <-subscription.Changes():
 			if !ok {
 				return nil
 			}
 
-			var changes []string
-			err := db.WithRetry(func() error {
-				var err error
-				changes, err = w.updates(c)
-				return err
-			})
+			changes, err := w.updates(c)
 			if err != nil {
 				return err
 			}
@@ -99,48 +83,51 @@ func (w *StringsWatcher) loop() error {
 				continue
 			}
 
-			// Push new changes.
-			select {
-			case <-w.tomb.Dying():
-				return tomb.ErrDying
-			case w.out <- changes:
-			}
+			out = w.out
+		case out <- changes:
 		}
 	}
 }
 
 func (w *StringsWatcher) initial() ([]string, error) {
-	rows, err := w.db.Query(w.queryAll)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
-		return nil, err
-	}
-	defer rows.Close()
-
 	var docs []string
-	for i := 0; rows.Next(); i++ {
-		docs = append(docs, "")
-		if err := rows.Scan(&docs[i]); err != nil {
-			return nil, err
+	err := db.WithRetry(func() error {
+		rows, err := w.db.Query(w.queryAll)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				return nil
+			}
+			return err
 		}
-	}
+		defer rows.Close()
 
-	return docs, nil
+		for i := 0; rows.Next(); i++ {
+			docs = append(docs, "")
+			if err := rows.Scan(&docs[i]); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+
+	return docs, err
 }
 
 func (w *StringsWatcher) updates(change eventqueue.Change) ([]string, error) {
-	row := w.db.QueryRow(w.query, change.EntityID())
-
 	var doc string
-	err := row.Scan(&doc)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
-		return nil, err
-	}
+	err := db.WithRetry(func() error {
+		row := w.db.QueryRow(w.query, change.EntityID())
 
-	return []string{doc}, nil
+		err := row.Scan(&doc)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				return nil
+			}
+			return err
+		}
+
+		return nil
+	})
+	return []string{doc}, err
 }
